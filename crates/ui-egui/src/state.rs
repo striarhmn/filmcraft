@@ -189,6 +189,9 @@ pub struct TimelineView {
     pub split: f32,
     pub video_track_h: f32,
     pub audio_track_h: f32,
+    /// Per-track height overrides set with Alt + wheel.
+    #[serde(default)]
+    pub track_h_override: std::collections::BTreeMap<u64, f32>,
     pub header_w: f32,
     pub show_thumbnails: bool,
     /// Which frames a video clip shows while `show_thumbnails` is on (the wrench menu).
@@ -222,7 +225,19 @@ impl TimelineView {
     pub fn animating(&self) -> bool {
         self.pps != self.target_pps || self.scroll != self.target_scroll
     }
+
+    pub fn track_height(&self, video: bool, id: u64) -> f32 {
+        self.track_h_override
+            .get(&id)
+            .copied()
+            .filter(|height| height.is_finite())
+            .unwrap_or(if video { self.video_track_h } else { self.audio_track_h })
+            .clamp(TRACK_H_MIN, TRACK_H_MAX)
+    }
 }
+
+pub const TRACK_H_MIN: f32 = 22.0;
+pub const TRACK_H_MAX: f32 = 220.0;
 
 impl Default for TimelineView {
     fn default() -> Self {
@@ -236,6 +251,7 @@ impl Default for TimelineView {
             split: 0.5,
             video_track_h: 60.0,
             audio_track_h: 56.0,
+            track_h_override: Default::default(),
             header_w: 204.0,
             show_thumbnails: true,
             thumbnail_mode: ThumbnailMode::Head,
@@ -480,6 +496,9 @@ pub struct UiState {
     /// share of the panel). Dragging the divider sets it (#643).
     #[serde(default)]
     pub effect_controls_split: f32,
+    /// Visible normalized time range in the Effect Controls keyframe lane (`None` = whole clip).
+    #[serde(default)]
+    pub effect_controls_zoom: Option<[f64; 2]>,
     pub show_menu_bar: bool,
     /// The header bar (Home, Import, Edit, Export, workspaces). An app that embeds FilmCraft can hide it.
     #[serde(default = "shown")]
@@ -1028,6 +1047,7 @@ impl Default for UiState {
             lumetri_grid_folder: None,
             collapsed_fx: vec![],
             effect_controls_split: 0.0,
+            effect_controls_zoom: None,
             show_menu_bar: true,
             show_header: true,
             show_status_bar: true,

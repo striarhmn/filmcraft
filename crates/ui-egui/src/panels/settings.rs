@@ -797,6 +797,7 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
             );
         }
         "appearanceModes" => appearance_modes(app, ui, d),
+        "navigationStyle" => navigation_style(app, ui, d),
         "labelPresets" => label_presets(app, ui, d),
         "autoSaveStatus" => {
             let status = app.session.execute("file.autoSaveStatus", json!({})).unwrap_or_default();
@@ -818,6 +819,25 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
         }
         _ => {}
     }
+}
+
+fn navigation_style(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft) {
+    let nav: settings::NavigationPrefs = serde_json::from_value(get(&d.values, "navigation").clone()).unwrap_or_default();
+    let current = nav.style();
+    let mut options = static_opts(settings::NAVIGATION_STYLES);
+    if current == "custom" {
+        options.push(("custom".into(), "Custom".into()));
+    }
+    ui.horizontal(|ui| {
+        field_label(ui, tl!("Navigation Style"));
+        if let Some(value) = combo(app, ui, "navigation.style", "Navigation Style", current, &options, 300.0)
+            && let Some(preset) = settings::navigation_style_preset(&value)
+            && let Ok(value) = serde_json::to_value(preset)
+        {
+            put(&mut d.values, "navigation", value);
+        }
+    });
+    ui.add_space(4.0);
 }
 
 fn rows(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, list: &[Row]) {

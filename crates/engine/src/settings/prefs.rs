@@ -348,8 +348,6 @@ pub struct TimelinePrefs {
     pub still_image_unit: String,
     /// "Timeline Playback Auto-Scrolling": `noScroll` | `pageScroll` | `smoothScroll`.
     pub auto_scroll: String,
-    /// "Timeline Mouse Scrolling": `vertical` | `horizontal`.
-    pub mouse_scrolling: String,
     /// Default Audio Tracks per media type: `useFile` | `mono` | `stereo` | `5.1` | `adaptive`.
     pub mono_media_tracks: String,
     pub stereo_media_tracks: String,
@@ -381,7 +379,6 @@ impl Default for TimelinePrefs {
             still_image_duration: 5.0,
             still_image_unit: "seconds".into(),
             auto_scroll: "pageScroll".into(),
-            mouse_scrolling: "vertical".into(),
             mono_media_tracks: "useFile".into(),
             stereo_media_tracks: "useFile".into(),
             surround_media_tracks: "useFile".into(),

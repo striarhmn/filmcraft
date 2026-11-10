@@ -44,9 +44,9 @@ use headers::draw_headers;
 pub(crate) use interact::wheel_input;
 use interact::{interact, move_transition_preview, preview_drag};
 #[cfg(test)]
-use layout::new_track_at;
+use layout::{new_track_at, video_row_tops};
 pub(crate) use layout::reveal_playhead;
-use layout::video_row_tops;
+use layout::video_row_tops_by_height;
 pub use layout::{Layout, Row, max_scroll, min_pps, scroll_to_reveal, timeline_extent, zoom_about};
 #[cfg(test)]
 pub(crate) use menus::{CLIP_MENU, EDIT_POINT_TYPES};
@@ -61,6 +61,8 @@ use waveforms::{source_peaks, waveform_display_gain, waveform_zone_height};
 
 const TOP_H: f32 = 58.0; // timecode + toolbar (left) / ruler (right)
 const RULER_H: f32 = 44.0;
+/// Height of the upper In/Out drag band when split-ruler navigation is enabled.
+pub const RULER_SPLIT_OFFSET: f32 = 22.0;
 const SCROLLBAR_H: f32 = 17.0;
 const DIVIDER_H: f32 = 5.0;
 const MASTER_H: f32 = 34.0;
@@ -243,6 +245,8 @@ pub enum Drag {
         start: Tick,
         end: Tick,
     },
+    /// Dragging the upper half of the split ruler previews a sequence In/Out range.
+    RulerInOut { anchor: Tick, current: Tick },
     /// The Timeline dragged by the middle button or the Hand tool: sideways in time, and up and down
     /// the half it began in (`audio`: the audio tracks below the divider, else the video tracks).
     Pan {
@@ -321,20 +325,21 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let video_area = Rect::from_min_max(pos2(rect.min.x, tracks_area.min.y), pos2(content.max.x, split_y));
     let audio_area = Rect::from_min_max(pos2(rect.min.x, split_y + DIVIDER_H), pos2(content.max.x, tracks_area.max.y - MASTER_H));
     let vh = app.ui.timeline.video_track_h;
-    let ah = app.ui.timeline.audio_track_h;
     let mut rows = Vec::new();
     let nv = seq.video_tracks.len();
-    let (video_tops, max_vs) = video_row_tops(video_area, nv, vh, &mut app.ui.timeline.v_scroll);
-    for ((i, tr), top) in seq.video_tracks.iter().enumerate().zip(video_tops) {
-        let rect = Rect::from_min_max(pos2(content.min.x, top), pos2(content.max.x, top + vh));
+    let video_heights: Vec<f32> = seq.video_tracks.iter().map(|tr| app.ui.timeline.track_height(true, tr.id.0)).collect();
+    let (video_tops, max_vs) = video_row_tops_by_height(video_area, &video_heights, vh, &mut app.ui.timeline.v_scroll);
+    for (((i, tr), top), h) in seq.video_tracks.iter().enumerate().zip(video_tops).zip(&video_heights) {
+        let rect = Rect::from_min_max(pos2(content.min.x, top), pos2(content.max.x, top + *h));
         rows.push(Row { track: tr.id, kind: TrackKind::Video, index: i, rect, lane: false });
     }
-    let na = seq.audio_tracks.len();
-    let max_as = (na as f32 * ah - audio_area.height()).max(0.0);
+    let audio_heights: Vec<f32> = seq.audio_tracks.iter().map(|tr| app.ui.timeline.track_height(false, tr.id.0)).collect();
+    let max_as = (audio_heights.iter().sum::<f32>() - audio_area.height()).max(0.0);
     app.ui.timeline.a_scroll = app.ui.timeline.a_scroll.clamp(0.0, max_as);
-    for (i, tr) in seq.audio_tracks.iter().enumerate() {
-        let top = audio_area.min.y + i as f32 * ah - app.ui.timeline.a_scroll;
-        let rect = Rect::from_min_max(pos2(content.min.x, top), pos2(content.max.x, top + ah));
+    let mut audio_top = audio_area.min.y - app.ui.timeline.a_scroll;
+    for ((i, tr), h) in seq.audio_tracks.iter().enumerate().zip(&audio_heights) {
+        let rect = Rect::from_min_max(pos2(content.min.x, audio_top), pos2(content.max.x, audio_top + *h));
+        audio_top += *h;
         rows.push(Row { track: tr.id, kind: TrackKind::Audio, index: i, rect, lane: app.ui.timeline.track_lanes.contains_key(&tr.id.0) });
     }
     let (v_scroll, a_scroll) = (app.ui.timeline.v_scroll, app.ui.timeline.a_scroll);
@@ -363,10 +368,17 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             painter.line_segment([pos2(row.min.x, r.rect.min.y + 0.5), pos2(row.max.x, r.rect.min.y + 0.5)], Stroke::new(1.0, t.separator));
         }
     }
-    // in/out shading across tracks
-    if seq.mark_in.is_some() || seq.mark_out.is_some() {
-        let a = layout.x_of(seq.mark_in.unwrap_or(Tick::ZERO)).max(content.min.x);
-        let b = layout.x_of(seq.mark_out.map(|o| o + rate.frame_duration()).unwrap_or(seq.duration())).min(content.max.x);
+    // In/Out shading across tracks, including the live range while dragging the split ruler.
+    let (mark_in, mark_out) = match app.tl.drag {
+        Some(Drag::RulerInOut { anchor, current }) => {
+            let (i, o) = ruler_inout_marks(anchor, current, rate);
+            (Some(i), Some(o))
+        }
+        _ => (seq.mark_in, seq.mark_out),
+    };
+    if mark_in.is_some() || mark_out.is_some() {
+        let a = layout.x_of(mark_in.unwrap_or(Tick::ZERO)).max(content.min.x);
+        let b = layout.x_of(mark_out.map(|o| o + rate.frame_duration()).unwrap_or(seq.duration())).min(content.max.x);
         if b > a {
             painter.rect_filled(Rect::from_min_max(pos2(a, content.min.y), pos2(b, content.max.y)), 0.0, t.in_out_shade);
         }
@@ -878,6 +890,28 @@ fn empty_state(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
 /// #374: trimming an audio clip must cut its waveform off at the moving edge, not squeeze the whole
 /// waveform into the shorter clip: the preview draws from the item the trim will leave, which shows
 /// the same media at every timeline time it still covers.
+/// In/Out frames between the ruler drag's frame edges (the Out frame ends at `current`).
+pub(crate) fn ruler_inout_marks(anchor: Tick, current: Tick, rate: FrameRate) -> (Tick, Tick) {
+    let (start, end) = (anchor.min(current), anchor.max(current));
+    (start, Tick(end.0.saturating_sub(rate.frame_duration().0)).max(start))
+}
+
+#[cfg(test)]
+mod ruler_inout_tests {
+    use super::ruler_inout_marks;
+    use filmcraft_time::{FrameRate, Tick};
+
+    #[test]
+    fn split_ruler_marks_whole_frames_in_either_drag_direction() {
+        let rate = FrameRate::FPS_25;
+        let frame = rate.frame_duration();
+        let at = |n: i64| Tick(frame.0 * n);
+        assert_eq!(ruler_inout_marks(at(10), at(20), rate), (at(10), at(19)));
+        assert_eq!(ruler_inout_marks(at(20), at(10), rate), (at(10), at(19)));
+        assert_eq!(ruler_inout_marks(at(10), at(10), rate), (at(10), at(10)));
+    }
+}
+
 #[cfg(test)]
 mod trim_preview_tests {
     use super::*;
@@ -1172,6 +1206,19 @@ mod thumbnail_tiles_tests {
 mod new_track_tests {
     use super::*;
     use filmcraft_project::{Project, SequenceSettings};
+
+    #[test]
+    fn per_track_heights_layout_rows_and_keep_a_drop_row() {
+        let area = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 100.0));
+        let mut scroll = 0.0;
+        let (tops, max) = layout::video_row_tops_by_height(area, &[30.0, 50.0, 70.0], 20.0, &mut scroll);
+        assert_eq!(max, 70.0);
+        assert_eq!(tops, vec![70.0, 20.0, -50.0]);
+        scroll = f32::MAX;
+        let (tops, max) = layout::video_row_tops_by_height(area, &[30.0, 50.0, 70.0], 20.0, &mut scroll);
+        assert_eq!(scroll, max);
+        assert_eq!(tops, vec![140.0, 90.0, 20.0]);
+    }
 
     /// #483: a drop above the top video track adds a video track, one below the last audio track an
     /// audio track; over a track, between the areas or on the Mix row it adds none.

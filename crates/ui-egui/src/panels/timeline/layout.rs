@@ -83,11 +83,21 @@ pub(super) fn new_track_at(seq: &Sequence, layout: &Layout, y: f32, vh: f32, ah:
 /// The scroll range includes one empty track's height above the top track: without it, tracks that
 /// fill the area leave no space where a drop adds a new one (#1522).
 pub(super) fn video_row_tops(area: Rect, n: usize, vh: f32, v_scroll: &mut f32) -> (Vec<f32>, f32) {
-    let total = (n + 1) as f32 * vh;
+    video_row_tops_by_height(area, &vec![vh; n], vh, v_scroll)
+}
+
+/// The top of each video row for per-track heights, with an empty drop row of `new_h` above them.
+pub(super) fn video_row_tops_by_height(area: Rect, heights: &[f32], new_h: f32, v_scroll: &mut f32) -> (Vec<f32>, f32) {
+    let total = heights.iter().sum::<f32>() + new_h;
     let v_off = (area.height() - total).max(0.0);
     let max_vs = (total - area.height()).max(0.0);
     *v_scroll = v_scroll.clamp(0.0, max_vs);
-    let tops = (0..n).map(|i| area.min.y + v_off + (n - i) as f32 * vh - (max_vs - *v_scroll)).collect();
+    let base = area.min.y + v_off - (max_vs - *v_scroll);
+    let mut above = heights.iter().sum::<f32>();
+    let tops = heights.iter().map(|height| {
+        above -= *height;
+        base + new_h + above
+    }).collect();
     (tops, max_vs)
 }
 

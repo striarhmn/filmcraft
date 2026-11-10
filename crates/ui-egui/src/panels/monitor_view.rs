@@ -417,7 +417,7 @@ pub fn picture_rect(area: Rect, fw: f32, fh: f32, v: &MonitorView, ppp: f32) -> 
 /// Zoom and pan the picture `pic` shown in `area`: the wheel (or a pinch) zooms about the pointer,
 /// from Fit too, between the zoom menu's 10% and 1600%; a middle-button drag, or a drag with the
 /// Hand tool, pans a magnified picture. `fw` is the picture's width in frame pixels.
-pub fn zoom_pan_input(app: &mut FilmcraftApp, ui: &mut egui::Ui, w: Which, area: Rect, pic: Rect, fw: f32, ppp: f32) {
+pub fn zoom_pan_input(app: &mut FilmcraftApp, ui: &mut egui::Ui, w: Which, area: Rect, pic: Rect, fw: f32, ppp: f32, wheel_zooms: bool) {
     let ctx = ui.ctx().clone();
     if ui.rect_contains_pointer(area)
         && let Some(p) = ctx.pointer_hover_pos()
@@ -425,7 +425,13 @@ pub fn zoom_pan_input(app: &mut FilmcraftApp, ui: &mut egui::Ui, w: Which, area:
         // about 10% per wheel notch (40 points), exponential in the wheel travel so a notch out
         // undoes a notch in exactly
         let wheel = crate::panels::timeline::wheel_input(&ctx);
-        let f = if (wheel.pinch - 1.0).abs() > 1e-4 { wheel.pinch } else { (wheel.delta.y * 1.1_f32.ln() / 40.0).exp().clamp(0.5, 2.0) };
+        let f = if (wheel.pinch - 1.0).abs() > 1e-4 {
+            wheel.pinch
+        } else if wheel_zooms {
+            (wheel.delta.y * 1.1_f32.ln() / 40.0).exp().clamp(0.5, 2.0)
+        } else {
+            1.0
+        };
         if (f - 1.0).abs() > 1e-4 && pic.width() > 0.0 && fw > 0.0 {
             let cur = pic.width() * ppp / fw;
             let z = (cur * f).clamp(ZOOMS[0].1, ZOOMS[ZOOMS.len() - 1].1);
@@ -439,14 +445,13 @@ pub fn zoom_pan_input(app: &mut FilmcraftApp, ui: &mut egui::Ui, w: Which, area:
             return;
         }
     }
-    if view(app, w).zoom.is_none() {
-        return;
-    }
     let mut d = Vec2::ZERO;
     // a middle-button drag that began over the picture pans it, whatever the tool
     let held = egui::Id::unique((prefix(w), "middle-pan"));
     let (pressed, down, moved) = ui.input(|i| (i.pointer.button_pressed(egui::PointerButton::Middle), i.pointer.middle_down(), i.pointer.delta()));
-    let panning = down && (ui.data(|m| m.get_temp::<bool>(held)).unwrap_or(false) || (pressed && ui.rect_contains_pointer(area)));
+    let panning = down
+        && app.session.prefs.navigation.middle_button_pan
+        && (ui.data(|m| m.get_temp::<bool>(held)).unwrap_or(false) || (pressed && ui.rect_contains_pointer(area)));
     ui.data_mut(|m| m.insert_temp(held, panning));
     if panning {
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -460,6 +465,14 @@ pub fn zoom_pan_input(app: &mut FilmcraftApp, ui: &mut egui::Ui, w: Which, area:
         d += resp.drag_delta();
     }
     if d != Vec2::ZERO {
+        // A fitted picture becomes a panned view at its current scale; it must not jump when the
+        // first middle-button or Hand-tool drag starts.
+        if view(app, w).zoom.is_none() && pic.width() > 0.0 && fw > 0.0 {
+            let fitted = (pic.width() * ppp / fw).min(ZOOMS[ZOOMS.len() - 1].1);
+            let v = view_mut(app, w);
+            v.zoom = Some(fitted);
+            v.pan = [0.0, 0.0];
+        }
         let max = ((pic.size() - area.size()) / 2.0).max(Vec2::ZERO);
         let v = view_mut(app, w);
         v.pan = [(v.pan[0] + d.x).clamp(-max.x, max.x), (v.pan[1] + d.y).clamp(-max.y, max.y)];

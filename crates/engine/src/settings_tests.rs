@@ -126,6 +126,7 @@ fn categories_follow_premiere_order() {
             "playback",
             "plugins",
             "timeline",
+            "navigation",
             "trim"
         ]
     );
@@ -163,7 +164,46 @@ fn every_schema_key_exists_with_a_valid_default() {
     assert_eq!(p.get("labels.colors.violet.color"), Some(json!("#380ea7")));
     assert_eq!(p.get("labels.defaults.movie"), Some(json!("Iris")));
     assert_eq!(p.get("audioHardware.bufferSize"), Some(json!(512)));
+    assert_eq!(p.get("navigation.mouseScrolling"), Some(json!("vertical")));
+    assert_eq!(p.get("navigation.programWheel"), Some(json!("stepFrames")));
     assert_eq!(p.version, settings::PREFS_VERSION);
+}
+
+#[test]
+fn navigation_preferences_persist_and_legacy_timeline_scroll_migrates() {
+    let dir = tmp_dir("navigation-prefs");
+    let path = dir.join("preferences.json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&json!({"version": 2, "timeline": {"mouseScrolling": "horizontal"}})).unwrap(),
+    )
+    .unwrap();
+    let mut s = Session::default();
+    s.prefs_path = Some(path.clone());
+    s.prefs = Preferences::load(&path);
+    assert_eq!(s.prefs.navigation.mouse_scrolling, "horizontal");
+    set(&mut s, "navigation.zoomAnchor", json!("playhead"));
+    set(&mut s, "navigation.programWheel", json!("stepKeyframes"));
+    let p = Preferences::load(&path);
+    assert_eq!(p.navigation.zoom_anchor, settings::ZoomAnchor::Playhead);
+    assert_eq!(p.navigation.program_wheel, "stepKeyframes");
+    assert_eq!(p.version, settings::PREFS_VERSION);
+    assert!(serde_json::to_value(&p).unwrap()["timeline"].get("mouseScrolling").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn navigation_wheel_actions_follow_modifier_preferences() {
+    let mut nav = settings::NavigationPrefs::default();
+    assert_eq!(nav.wheel_action(false, false, false), "vertical");
+    assert_eq!(nav.wheel_action(false, true, false), "zoom");
+    assert_eq!(nav.wheel_action(false, false, true), "horizontal");
+    assert_eq!(nav.wheel_action(true, false, false), "horizontal");
+    assert_eq!(nav.wheel_action(true, true, true), "off");
+    assert_eq!(nav.wheel_action(true, true, false), "off");
+    assert_eq!(nav.panel_wheel("program", false, true, true, false), "off");
+    nav.mouse_scrolling = "horizontal".into();
+    assert_eq!(nav.wheel_action(true, false, false), "vertical", "Ctrl swaps a duplicate horizontal action to vertical");
 }
 
 #[test]

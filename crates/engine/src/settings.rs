@@ -25,6 +25,7 @@ use crate::{EngineError, Result, Session};
 mod commands;
 mod labels;
 mod media_cache;
+mod navigation;
 mod prefs;
 mod schema;
 
@@ -33,6 +34,7 @@ pub use labels::{
     DEFAULT_LABEL_PRESET, LABEL_PRESETS_DIR, LabelColor, LabelDefaults, LabelPrefs, LabelPreset, PresetLabel, hex, is_builtin_label_preset, label_id, parse_hex,
 };
 pub use media_cache::{CUSTOM_CACHE_FOLDER, cache_usage, clean, enforce_policy, media_cache_dir, previews_root};
+pub use navigation::{MOUSE_SCROLL, NAVIGATION_STYLES, NavigationPrefs, PANEL_WHEEL, ZoomAnchor, navigation_style_preset};
 pub use prefs::{
     AppearancePrefs, AudioHardwarePrefs, ColorPrefs, DEFAULT_HIGHLIGHT, GeneralPrefs, GraphicsPrefs, MediaAnalysisPrefs, MediaCachePrefs, MemoryPrefs,
     PluginPrefs, TimelinePrefs, timebase_rate,
@@ -44,8 +46,8 @@ pub use schema::{
 
 /// Version of the preferences file layout ([`crate::autosave::Preferences::version`]).
 /// v1: Auto Save, Audio (mixer automation), Playback (pre/postroll), Trim, Media (proxies), guides,
-/// Essential Sound presets. v2: every Settings category.
-pub const PREFS_VERSION: u32 = 2;
+/// Essential Sound presets. v2: every Settings category. v3: Navigation preferences.
+pub const PREFS_VERSION: u32 = 3;
 const SPEAKERS: &[(&str, &str)] = &[("on", "Label speakers"), ("off", "Don't label speakers")];
 const LANGUAGES: &[(&str, &str)] = &[
     ("en", "English"),

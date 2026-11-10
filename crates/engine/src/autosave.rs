@@ -170,6 +170,7 @@ pub struct Preferences {
     pub media_analysis: settings::MediaAnalysisPrefs,
     pub media_cache: settings::MediaCachePrefs,
     pub memory: settings::MemoryPrefs,
+    pub navigation: settings::NavigationPrefs,
     pub playback: PlaybackPrefs,
     pub plugins: settings::PluginPrefs,
     pub timeline: settings::TimelinePrefs,
@@ -200,6 +201,7 @@ impl Default for Preferences {
             media_analysis: Default::default(),
             media_cache: Default::default(),
             memory: Default::default(),
+            navigation: Default::default(),
             playback: Default::default(),
             plugins: Default::default(),
             timeline: Default::default(),
@@ -412,8 +414,14 @@ impl Preferences {
     /// Parse a preferences document: migrate older layouts, repair values against the schema.
     pub fn from_value(mut v: Value) -> Self {
         settings::migrate(&mut v);
-        settings::sanitize(&mut v, &Self::default().to_value());
-        let mut p: Preferences = serde_json::from_value(v).unwrap_or_default();
+        let mut merged = Self::default().to_value();
+        if let (Some(defaults), Some(saved)) = (merged.as_object_mut(), v.as_object()) {
+            for (key, value) in saved {
+                defaults.insert(key.clone(), value.clone());
+            }
+        }
+        settings::sanitize(&mut merged, &Self::default().to_value());
+        let mut p: Preferences = serde_json::from_value(merged).unwrap_or_default();
         p.clamp();
         p
     }

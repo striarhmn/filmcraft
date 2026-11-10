@@ -206,21 +206,6 @@ fn cmd_wheel_moves_the_timeline_sideways_and_option_wheel_zooms() {
     assert_eq!(d.view(), (6.0, 50.0, 0.0, 0.0));
 }
 
-/// Settings ▸ Timeline ▸ Timeline Mouse Scrolling "Horizontal": the wheel moves the Timeline
-/// sideways and Cmd + wheel moves the tracks.
-#[test]
-fn the_mouse_scrolling_setting_swaps_wheel_and_cmd_wheel() {
-    let mut d = Driver::tall();
-    assert_eq!(d.app().session.prefs.timeline.mouse_scrolling, "vertical", "Premiere's default on macOS");
-    d.app().session.prefs.timeline.mouse_scrolling = "horizontal".into();
-    d.wheel(0.2, 0.0, -100.0, none());
-    assert_eq!(d.view(), (6.0, 50.0, 0.0, 0.0));
-    d.wheel(0.2, 0.0, 40.0, json!({"command": true}));
-    assert_eq!(d.view(), (6.0, 50.0, 40.0, 0.0));
-    d.wheel(0.2, 0.0, 20.0, json!({"alt": true}));
-    assert!((d.view().1 - 60.0).abs() < 1e-6, "Option + wheel zooms either way");
-}
-
 /// The view cannot leave the Timeline: scrolled 39 minutes past a 26 second sequence, nothing was
 /// in view and the scroll bar's thumb sat at the right end whatever was done to it.
 #[test]

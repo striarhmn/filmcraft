@@ -1,6 +1,6 @@
 use super::labels::parse_hex;
 use super::prefs::AppearancePrefs;
-use super::{CACHE_MGMT, LANGUAGES, SPEAKERS, Value, json};
+use super::{CACHE_MGMT, LANGUAGES, MOUSE_SCROLL as NAV_MOUSE_SCROLL, PANEL_WHEEL, SPEAKERS, Value, json};
 
 // ------------------------------------------------------------------ schema
 
@@ -192,8 +192,6 @@ const MODELS: &[(&str, &str)] =
     &[("whisper-tiny", "Whisper tiny (fastest)"), ("whisper-base", "Whisper base (balanced)"), ("whisper-small", "Whisper small (most accurate)")];
 
 const AUTO_SCROLL: &[(&str, &str)] = &[("noScroll", "No Scroll"), ("pageScroll", "Page Scroll"), ("smoothScroll", "Smooth Scroll")];
-
-const MOUSE_SCROLL: &[(&str, &str)] = &[("vertical", "Vertical"), ("horizontal", "Horizontal")];
 
 const HW_DECODE: &[(&str, &str)] = &[("auto", "Auto"), ("off", "Off")];
 
@@ -555,7 +553,6 @@ pub(super) static CATEGORIES: &[Category] = &[
             f("timeline.audioTransitionDuration", "Audio Transition Default Duration", Kind::Duration { unit_key: "timeline.audioTransitionUnit" }, true),
             f("timeline.stillImageDuration", "Still Image Default Duration", Kind::Duration { unit_key: "timeline.stillImageUnit" }, true),
             f("timeline.autoScroll", "Timeline Playback Auto-Scrolling", Kind::Choice(AUTO_SCROLL), true),
-            f("timeline.mouseScrolling", "Timeline Mouse Scrolling", Kind::Choice(MOUSE_SCROLL), true),
             Row::Group(
                 "Default Audio Tracks",
                 &[
@@ -576,6 +573,67 @@ pub(super) static CATEGORIES: &[Category] = &[
             b("timeline.addTracksAutomatically", "Add tracks automatically when editing source clips onto the Timeline", false),
             b("timeline.dropImportToTimeline", "Place files dropped onto the Timeline directly on the Timeline", true),
             b("timeline.selectionFollowsPlayhead", "Selection Follows Playhead", true),
+        ],
+    },
+    Category {
+        id: "navigation",
+        title: "Navigation",
+        rows: &[
+            Row::Custom("navigationStyle"),
+            Row::Group(
+                "Timeline Mouse Wheel",
+                &[
+                    f("navigation.mouseScrolling", "Scroll", Kind::Choice(NAV_MOUSE_SCROLL), true),
+                    f("navigation.altScrolling", "Alt + Scroll", Kind::Choice(NAV_MOUSE_SCROLL), true),
+                    f("navigation.shiftScrolling", "Shift + Scroll", Kind::Choice(NAV_MOUSE_SCROLL), true),
+                    f("navigation.ctrlScrolling", "Ctrl + Scroll", Kind::Choice(NAV_MOUSE_SCROLL), true),
+                    f("navigation.zoomAnchor", "Zoom Anchor Point", Kind::Choice(&[("cursor", "Cursor Position"), ("playhead", "Playhead Position")]), true),
+                ],
+            ),
+            Row::Group(
+                "Timeline Clicks and Drags",
+                &[
+                    f("navigation.clickToMovePlayhead", "Move Playhead on Timeline Click", Kind::Choice(&[("rulerOnly", "Ruler Only"), ("emptySpace", "Empty Space Only"), ("anywhere", "Anywhere on Timeline")]), true),
+                    f("navigation.dragPlayheadLine", "Drag Playhead Line Across Tracks", Kind::Choice(&[("off", "Off (Ruler Head Only)"), ("emptySpace", "Empty Space Only"), ("anywhere", "Anywhere, Including Over Clips")]), true),
+                    b("navigation.rulerDragInOut", "Split Time Ruler: Drag Upper Half to Set In/Out Range", true),
+                    b("navigation.middleButtonPan", "Pan Timeline by Dragging With Middle Mouse Button", true),
+                ],
+            ),
+            Row::Group(
+                "Program Monitor Mouse Wheel",
+                &[
+                    f("navigation.programPreviewWheel", "Preview: Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.programWheel", "Time Ruler: Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.programPreviewAltWheel", "Preview: Alt + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.programAltWheel", "Time Ruler: Alt + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.programPreviewShiftWheel", "Preview: Shift + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.programShiftWheel", "Time Ruler: Shift + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.programPreviewCtrlWheel", "Preview: Ctrl + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.programCtrlWheel", "Time Ruler: Ctrl + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                ],
+            ),
+            Row::Group(
+                "Source Monitor Mouse Wheel",
+                &[
+                    f("navigation.sourcePreviewWheel", "Preview: Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.sourceWheel", "Time Ruler: Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.sourcePreviewAltWheel", "Preview: Alt + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.sourceAltWheel", "Time Ruler: Alt + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.sourcePreviewShiftWheel", "Preview: Shift + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.sourceShiftWheel", "Time Ruler: Shift + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.sourcePreviewCtrlWheel", "Preview: Ctrl + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.sourceCtrlWheel", "Time Ruler: Ctrl + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                ],
+            ),
+            Row::Group(
+                "Effect Controls Mouse Wheel",
+                &[
+                    f("navigation.effectControlsWheel", "Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.effectControlsAltWheel", "Alt + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.effectControlsShiftWheel", "Shift + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                    f("navigation.effectControlsCtrlWheel", "Ctrl + Scroll", Kind::Choice(PANEL_WHEEL), true),
+                ],
+            ),
         ],
     },
     Category {
@@ -711,6 +769,7 @@ pub fn sanitize(v: &mut Value, defaults: &Value) {
     }
 }
 
+
 /// Upgrade an older preferences file (`version` missing = v1) to [`PREFS_VERSION`].
 pub fn migrate(v: &mut Value) {
     let Some(m) = v.as_object_mut() else { return };
@@ -720,6 +779,16 @@ pub fn migrate(v: &mut Value) {
         // (filled in from defaults by serde). The v1 "Auto Save" dialog wrote integer seconds for
         // pre/postroll; v2 stores them as reals, which serde reads either way.
         m.insert("version".into(), json!(2));
+    }
+    if ver < 3 {
+        let old = m.get_mut("timeline").and_then(Value::as_object_mut).and_then(|t| t.remove("mouseScrolling"));
+        if let Some(old) = old {
+            let navigation = m.entry("navigation").or_insert_with(|| json!({}));
+            if let Some(nav) = navigation.as_object_mut() {
+                nav.entry("mouseScrolling").or_insert(old);
+            }
+        }
+        m.insert("version".into(), json!(3));
     }
     // Files from before appearance modes had one Color Theme: keep showing it, as a fixed Dark or
     // Light mode, instead of switching established users to another theme or to Auto.

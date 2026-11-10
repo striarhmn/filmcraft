@@ -1,7 +1,7 @@
 use super::layout::Layout;
 use super::{
-    Align2, Color32, Drag, EDGE_PX, FilmcraftApp, Icon, ItemId, Rect, Sense, Sequence, Stroke, ThumbnailMode, Tick, TimeRange, Tokens, Value, format_time,
-    icons, json, marker_range_rect, marker_rect, pos2, vec2, work_area_rect,
+    Align2, Color32, Drag, EDGE_PX, FilmcraftApp, Icon, ItemId, Rect, RULER_SPLIT_OFFSET, Sense, Sequence, Stroke, ThumbnailMode, Tick, TimeRange,
+    Tokens, Value, format_time, icons, json, marker_range_rect, marker_rect, pos2, ruler_inout_marks, vec2, work_area_rect,
 };
 use crate::panels::timeline_hit::marker_end_rect;
 
@@ -95,11 +95,30 @@ pub(super) fn draw_top(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, se
     let label_y = ruler.min.y + 24.0;
     let tick_base = ruler.max.y - 3.0;
     let (minor, label_step) = ruler_steps(layout.pps / rate.as_f64(), rate.timecode_base());
-    // In/Out band
-    if seq.mark_in.is_some() || seq.mark_out.is_some() {
-        let a = layout.x_of(seq.mark_in.unwrap_or(Tick::ZERO));
-        let b = layout.x_of(seq.mark_out.map(|o| o + rate.frame_duration()).unwrap_or(seq.duration()));
-        clip.rect_filled(Rect::from_min_max(pos2(a, label_y + 7.0), pos2(b, tick_base)), 0.0, Color32::from_rgb(0x5c, 0x5c, 0x5c));
+    let (mark_in, mark_out) = match app.tl.drag {
+        Some(Drag::RulerInOut { anchor, current }) => {
+            let (i, o) = ruler_inout_marks(anchor, current, rate);
+            (Some(i), Some(o))
+        }
+        _ => (seq.mark_in, seq.mark_out),
+    };
+    let split_ruler = app.session.prefs.navigation.ruler_drag_in_out;
+    let split_y = ruler.min.y + RULER_SPLIT_OFFSET;
+    if split_ruler {
+        clip.line_segment([pos2(ruler.min.x, split_y), pos2(ruler.max.x, split_y)], Stroke::new(1.0, t.separator.gamma_multiply(0.8)));
+    }
+    if mark_in.is_some() || mark_out.is_some() {
+        let a = layout.x_of(mark_in.unwrap_or(Tick::ZERO));
+        let b = layout.x_of(mark_out.map(|o| o + rate.frame_duration()).unwrap_or(seq.duration()));
+        let top = if split_ruler { ruler.min.y + 2.0 } else { label_y + 7.0 };
+        clip.rect_filled(Rect::from_min_max(pos2(a, top), pos2(b, tick_base)), 0.0, Color32::from_rgb(0x5c, 0x5c, 0x5c));
+        if split_ruler {
+            let color = Color32::from_rgb(0xf0, 0xc8, 0x3c);
+            for (x, dir) in [(a, 1.0_f32), (b, -1.0_f32)] {
+                clip.line_segment([pos2(x, ruler.min.y + 1.0), pos2(x, split_y)], Stroke::new(1.5, color));
+                clip.line_segment([pos2(x, ruler.min.y + 1.5), pos2(x + dir * 5.0, ruler.min.y + 1.5)], Stroke::new(1.5, color));
+            }
+        }
     }
     // split points: a short bracket with a V or A tag (video above, audio below)
     let sp = seq.split;
@@ -257,11 +276,13 @@ fn timeline_settings(app: &mut FilmcraftApp, ui: &mut egui::Ui) {
     }
     ui.separator();
     if ui.button(tl!("Expand All Tracks")).clicked() {
+        app.ui.timeline.track_h_override.clear();
         app.ui.timeline.video_track_h = 64.0;
         app.ui.timeline.audio_track_h = 64.0;
         ui.close();
     }
     if ui.button(tl!("Minimize All Tracks")).clicked() {
+        app.ui.timeline.track_h_override.clear();
         app.ui.timeline.video_track_h = 26.0;
         app.ui.timeline.audio_track_h = 26.0;
         ui.close();
